@@ -27,6 +27,17 @@ describe('every page renders from seeded data', () => {
 })
 
 describe('basic flows', () => {
+  it('paginates tasks and resets to the first page when filters change', async () => {
+    renderApp('/tasks')
+    expect(await screen.findByText('Showing 1–10 of 65 tasks')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(screen.getByText('Showing 11–20 of 65 tasks')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'Weekly review' } })
+    expect(screen.getByText('Showing 1–1 of 1 task')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Previous page' }).hasAttribute('disabled')).toBe(true)
+  })
+
   it('saves a journal entry', async () => {
     renderApp('/journal')
     fireEvent.change(await screen.findByLabelText('What did I learn today?'), { target: { value: 'Closures' } })

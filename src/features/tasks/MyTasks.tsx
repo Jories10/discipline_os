@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { useAppStore, selectCategoryMap } from '@/stores/useAppStore'
 import { useUiStore } from '@/stores/useUiStore'
 import { useNow } from '@/hooks/useNow'
@@ -10,7 +10,14 @@ import type { Task } from '@/domain/types'
 import { buttonClass, inputClass, primaryButtonClass } from '@/components/Field'
 import TaskCard from '@/features/planner/TaskCard'
 
-const PAGE_SIZE = 60
+const PAGE_SIZE = 10
+
+function getPageItems(pageCount: number, currentPage: number): (number | 'ellipsis')[] {
+  if (pageCount <= 5) return Array.from({ length: pageCount }, (_, i) => i + 1)
+  if (currentPage <= 3) return [1, 2, 3, 4, 'ellipsis', pageCount]
+  if (currentPage >= pageCount - 2) return [1, 'ellipsis', pageCount - 3, pageCount - 2, pageCount - 1, pageCount]
+  return [1, 'ellipsis', currentPage - 1, currentPage, currentPage + 1, 'ellipsis', pageCount]
+}
 
 export default function MyTasks() {
   const { todayISO, nowMin } = useNow()
@@ -21,17 +28,21 @@ export default function MyTasks() {
   const catMap = useMemo(() => selectCategoryMap(categories), [categories])
 
   const [filters, setFilters] = useState<TaskFilters>(DEFAULT_FILTERS)
-  const [limit, setLimit] = useState(PAGE_SIZE)
+  const [page, setPage] = useState(1)
   const patch = (p: Partial<TaskFilters>) => {
     setFilters((f) => ({ ...f, ...p }))
-    setLimit(PAGE_SIZE)
+    setPage(1)
   }
 
   const filtered = useMemo(
     () => sortByTime(filterTasks(tasks, filters, todayISO, nowMin)),
     [tasks, filters, todayISO, nowMin],
   )
-  const visible = filtered.slice(0, limit)
+  const pageCount = Math.ceil(filtered.length / PAGE_SIZE)
+  const currentPage = Math.min(page, Math.max(pageCount, 1))
+  const firstItem = (currentPage - 1) * PAGE_SIZE
+  const visible = filtered.slice(firstItem, firstItem + PAGE_SIZE)
+  const pageItems = getPageItems(pageCount, currentPage)
   const groups = useMemo(() => {
     const map = new Map<string, Task[]>()
     for (const t of visible) map.set(t.date, [...(map.get(t.date) ?? []), t])
@@ -89,7 +100,7 @@ export default function MyTasks() {
           {isFiltered ? (
             <>
               <p>No tasks match these filters.</p>
-              <button onClick={() => { setFilters(DEFAULT_FILTERS); setLimit(PAGE_SIZE) }} className={`${buttonClass} mt-3`}>Clear filters</button>
+              <button onClick={() => { setFilters(DEFAULT_FILTERS); setPage(1) }} className={`${buttonClass} mt-3`}>Clear filters</button>
             </>
           ) : (
             <p>No tasks yet. Use Add task to schedule your first one.</p>
@@ -107,11 +118,53 @@ export default function MyTasks() {
               </div>
             </section>
           ))}
-          {filtered.length > visible.length && (
-            <button onClick={() => setLimit((l) => l + PAGE_SIZE)} className={buttonClass}>
-              Show more ({filtered.length - visible.length} left)
+        </div>
+      )}
+      {filtered.length > 0 && (
+        <div className="mt-6 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted" aria-live="polite">
+            Showing {firstItem + 1}–{Math.min(firstItem + PAGE_SIZE, filtered.length)} of {filtered.length} {filtered.length === 1 ? 'task' : 'tasks'}
+          </p>
+          <nav aria-label="Task pagination" className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              aria-label="Previous page"
+              className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2.5 py-2 text-sm text-muted hover:bg-ink/5 hover:text-ink disabled:pointer-events-none disabled:opacity-40"
+            >
+              <ChevronLeft size={16} aria-hidden />
+              <span className="hidden sm:inline">Previous</span>
             </button>
-          )}
+            {pageItems.map((item, index) => item === 'ellipsis' ? (
+              <span key={`ellipsis-${index}`} aria-hidden className="px-1 text-sm text-muted">…</span>
+            ) : (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setPage(item)}
+                aria-label={`Page ${item}`}
+                aria-current={item === currentPage ? 'page' : undefined}
+                className={`min-w-9 rounded-md border px-2.5 py-2 text-sm ${
+                  item === currentPage
+                    ? 'border-accent bg-accent/10 font-medium text-accent'
+                    : 'border-line bg-surface text-muted hover:bg-ink/5 hover:text-ink'
+                }`}
+              >
+                {item}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPage(currentPage + 1)}
+              disabled={currentPage === pageCount}
+              aria-label="Next page"
+              className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2.5 py-2 text-sm text-muted hover:bg-ink/5 hover:text-ink disabled:pointer-events-none disabled:opacity-40"
+            >
+              <span className="hidden sm:inline">Next</span>
+              <ChevronRight size={16} aria-hidden />
+            </button>
+          </nav>
         </div>
       )}
     </div>
