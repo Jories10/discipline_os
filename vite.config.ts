@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'node:path'
 
 export default defineConfig({
-  base: "/discipline_os_v5/",
+  base: "/discipline_os/",
   plugins: [react()],
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   build: {
