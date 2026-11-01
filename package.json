@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "deploy": "npm run build && gh-pages -d dist",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -27,7 +28,7 @@
     "@types/node": "^22.20.5",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.2",
     "autoprefixer": "^10.4.20",
     "jsdom": "^25.0.1",
     "postcss": "^8.4.47",
