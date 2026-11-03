@@ -56,6 +56,7 @@ export default function ApplyTemplateDialog({ dialog }: Props) {
             confirmLabel="Apply template"
             successMessage="Template applied"
             allowReplace
+            defaultMode={dialog.scope === 'week' ? 'replace' : 'add'}
             onDone={close}
             onCancel={close}
           />

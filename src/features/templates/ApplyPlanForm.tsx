@@ -13,16 +13,17 @@ interface Props {
   successMessage: string
   /** False for flows that only ever add (carry forward). */
   allowReplace: boolean
+  defaultMode?: ApplyMode
   onDone: () => void
   onCancel: () => void
 }
 
 /** Shared confirmation step: shows exactly what will be added and removed before anything changes. */
-export default function ApplyPlanForm({ incoming, dates, confirmLabel, successMessage, allowReplace, onDone, onCancel }: Props) {
+export default function ApplyPlanForm({ incoming, dates, confirmLabel, successMessage, allowReplace, defaultMode = 'add', onDone, onCancel }: Props) {
   const existing = useAppStore((s) => s.tasks)
   const applyChanges = useAppStore((s) => s.applyChanges)
   const notify = useUiStore((s) => s.notify)
-  const [mode, setMode] = useState<ApplyMode>('add')
+  const [mode, setMode] = useState<ApplyMode>(defaultMode)
 
   const preview = useMemo(() => previewApply(existing, incoming, dates, allowReplace ? mode : 'add'), [existing, incoming, dates, mode, allowReplace])
   const destructive = preview.removeIds.length > 0

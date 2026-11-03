@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { buildInitialState } from '@/domain/seed'
 import type { TaskFields } from '@/domain/taskForm'
-import { addDays, toISODate } from '@/domain/time'
+import { addDays, dayName, toISODate, weekDates } from '@/domain/time'
 import { STORAGE_KEY } from '@/storage/storage'
 import { useAppStore } from '@/stores/useAppStore'
 import { useUiStore } from '@/stores/useUiStore'
@@ -105,6 +105,30 @@ describe('task cards', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Reopen Mark me' }))
     expect(titled('Mark me')[0].completed).toBe(false)
   })
+
+  it('undoes and redoes planner task changes', async () => {
+    addTask({ title: 'Undo me', date: TODAY })
+    renderApp('/planner')
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Complete Undo me' }))
+    expect(titled('Undo me')[0].completed).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo planner change' }))
+    expect(titled('Undo me')[0].completed).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Redo planner change' }))
+    expect(titled('Undo me')[0].completed).toBe(true)
+  })
+
+  it('focuses one day at a time and allows switching days', () => {
+    renderApp('/planner')
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs).toHaveLength(7)
+    expect(tabs.find((tab) => tab.getAttribute('aria-selected') === 'true')?.getAttribute('aria-label')).toContain(dayName(TODAY))
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
+
+    const otherDay = weekDates(TODAY)[6]
+    fireEvent.click(tabs[6])
+    expect(screen.getByRole('tabpanel').getAttribute('aria-label')).toBe(`Tasks for ${dayName(otherDay)}`)
+  })
 })
 
 describe('data safety', () => {
@@ -119,6 +143,23 @@ describe('data safety', () => {
     await waitFor(() => expect(titled('Drop')).toHaveLength(0))
     expect(titled('Keep')).toHaveLength(1)
     expect(useAppStore.getState().tasks.filter((t) => t.date === FUTURE)).toHaveLength(13) // 12 from template + 1 kept
+  })
+
+  it('starts a week template by replacing unfinished tasks by default', async () => {
+    addTask({ title: 'Old plan', date: FUTURE })
+    renderApp('/planner')
+    act(() => useUiStore.getState().openRoutine({ type: 'apply', templateId: 'tpl-week', targetDate: FUTURE, scope: 'week' }))
+
+    expect((await screen.findByRole('radio', { name: /Replace unfinished tasks/ }) as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Replace 1 and apply' }))
+
+    await waitFor(() => expect(titled('Old plan')).toHaveLength(0))
+    expect(useAppStore.getState().tasks.filter((task) => task.date === FUTURE)).toHaveLength(12)
+    fireEvent.click(screen.getByRole('button', { name: 'Undo planner change' }))
+    await waitFor(() => expect(titled('Old plan')).toHaveLength(1))
+    expect(useAppStore.getState().tasks.filter((task) => task.date === FUTURE)).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Redo planner change' }))
+    await waitFor(() => expect(titled('Old plan')).toHaveLength(0))
   })
 
   it('moves tasks to another category before deleting one', async () => {

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight, Plus, Redo2, Undo2 } from 'lucide-react'
 import { useAppStore, selectCategoryMap } from '@/stores/useAppStore'
 import { useNow } from '@/hooks/useNow'
 import { addDays, dayName, formatShortDate, periodOf, sortByTime, startOfWeek, weekDates } from '@/domain/time'
@@ -9,7 +9,6 @@ import { useUiStore } from '@/stores/useUiStore'
 import { primaryButtonClass } from '@/components/Field'
 import Menu, { MenuItem } from '@/components/Menu'
 import { handleTabKeys } from '@/components/tabKeys'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
 import TaskCard from './TaskCard'
 
 const PERIODS: { id: DayPeriod; label: string; hours: string; bar: string }[] = [
@@ -22,12 +21,12 @@ interface DayColumnProps {
   date: string
   tasks: Task[]
   isToday: boolean
-  renderTask: (t: Task) => JSX.Element
-  onAdd: (date: string) => void
+  renderTask: (task: Task) => JSX.Element
+  onAdd: (targetDate: string) => void
 }
 
 function DayColumn({ date, tasks, isToday, renderTask, onAdd }: DayColumnProps) {
-  const openRoutine = useUiStore((s) => s.openRoutine)
+  const openRoutine = useUiStore((uiState) => uiState.openRoutine)
   return (
     <section aria-label={dayName(date)} className="min-w-0">
       <div className="mb-3 flex items-center justify-between">
@@ -45,13 +44,13 @@ function DayColumn({ date, tasks, isToday, renderTask, onAdd }: DayColumnProps) 
         </div>
       </div>
       <div className="space-y-4">
-        {PERIODS.map((p) => {
-          const items = tasks.filter((t) => periodOf(t.startMin) === p.id)
+        {PERIODS.map((period) => {
+          const items = tasks.filter((task) => periodOf(task.startMin) === period.id)
           return (
-            <div key={p.id}>
+            <div key={period.id}>
               <div className="mb-1.5 flex items-center gap-2 text-xs text-muted">
-                <span className={`h-1.5 w-1.5 rounded-full ${p.bar}`} aria-hidden />
-                {p.label}
+                <span className={`h-1.5 w-1.5 rounded-full ${period.bar}`} aria-hidden />
+                {period.label}
               </div>
               {items.length === 0 ? (
                 <p className="rounded-md border border-dashed border-line px-2 py-3 text-xs text-muted">Nothing planned</p>
@@ -68,43 +67,45 @@ function DayColumn({ date, tasks, isToday, renderTask, onAdd }: DayColumnProps) 
 
 export default function WeeklyPlanner() {
   const { todayISO, nowMin } = useNow()
-  const tasks = useAppStore((s) => s.tasks)
-  const categories = useAppStore((s) => s.categories)
+  const tasks = useAppStore((appState) => appState.tasks)
+  const categories = useAppStore((appState) => appState.categories)
+  const canUndo = useAppStore((appState) => appState.canUndo)
+  const canRedo = useAppStore((appState) => appState.canRedo)
+  const undo = useAppStore((appState) => appState.undo)
+  const redo = useAppStore((appState) => appState.redo)
   const actions = useTaskActions()
-  // Only one layout is mounted at a time, instead of rendering the week twice and hiding one with CSS.
-  const isDesktop = useMediaQuery('(min-width: 1024px)')
-  const openCreate = useUiStore((s) => s.openCreate)
-  const openRoutine = useUiStore((s) => s.openRoutine)
+  const openCreate = useUiStore((uiState) => uiState.openCreate)
+  const openRoutine = useUiStore((uiState) => uiState.openRoutine)
   const catMap = useMemo(() => selectCategoryMap(categories), [categories])
 
   const [weekStart, setWeekStart] = useState(() => startOfWeek(todayISO))
   const [selectedDay, setSelectedDay] = useState(todayISO)
+  useEffect(() => setSelectedDay(todayISO), [todayISO])
 
   const dates = weekDates(weekStart)
   const byDate = useMemo(() => {
     const map = new Map<string, Task[]>()
-    for (const t of sortByTime(tasks)) map.set(t.date, [...(map.get(t.date) ?? []), t])
+    for (const task of sortByTime(tasks)) map.set(task.date, [...(map.get(task.date) ?? []), task])
     return map
   }, [tasks])
 
-  const shiftWeek = (weeks: number) => {
-    const next = addDays(weekStart, weeks * 7)
-    setWeekStart(next)
-    setSelectedDay(next === startOfWeek(todayISO) ? todayISO : next)
+  const shiftWeek = (numberOfWeeksToShift: number) => {
+    const newWeekStart = addDays(weekStart, numberOfWeeksToShift * 7)
+    setWeekStart(newWeekStart)
+    setSelectedDay(newWeekStart === startOfWeek(todayISO) ? todayISO : newWeekStart)
   }
   const goToday = () => {
     setWeekStart(startOfWeek(todayISO))
     setSelectedDay(todayISO)
   }
 
-  const renderTask = (t: Task) => (
-    <TaskCard key={t.id} task={t} category={catMap.get(t.categoryId)} todayISO={todayISO} nowMin={nowMin} actions={actions} />
+  const renderTask = (task: Task) => (
+    <TaskCard key={task.id} task={task} category={catMap.get(task.categoryId)} todayISO={todayISO} nowMin={nowMin} actions={actions} />
   )
 
-  const addOn = (date: string) => openCreate({ date })
-  const weekHasTasks = dates.some((d) => byDate.has(d))
-  const activeDay = dates.includes(selectedDay) ? selectedDay : dates[0]
-  const activeDayForAdd = dates.includes(todayISO) ? todayISO : dates[0]
+  const addOn = (targetDate: string) => openCreate({ date: targetDate })
+  const weekHasTasks = dates.some((date) => byDate.has(date))
+  const activeDay = dates.includes(selectedDay) ? selectedDay : dates.includes(todayISO) ? todayISO : dates[0]
 
   return (
     <div>
@@ -116,7 +117,13 @@ export default function WeeklyPlanner() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
-          <button onClick={() => addOn(activeDayForAdd)} className={`${primaryButtonClass} mr-2 inline-flex items-center gap-1.5`}>
+          <button onClick={undo} disabled={!canUndo} aria-label="Undo planner change" title="Undo" className="rounded-md border border-line bg-surface p-2 text-muted hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-40">
+            <Undo2 size={16} aria-hidden />
+          </button>
+          <button onClick={redo} disabled={!canRedo} aria-label="Redo planner change" title="Redo" className="mr-2 rounded-md border border-line bg-surface p-2 text-muted hover:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-40">
+            <Redo2 size={16} aria-hidden />
+          </button>
+          <button onClick={() => addOn(activeDay)} className={`${primaryButtonClass} inline-flex items-center gap-1.5`}>
             <Plus size={16} aria-hidden /> Add task
           </button>
           <button onClick={() => shiftWeek(-1)} aria-label="Previous week" className="rounded-md border border-line bg-surface p-2 hover:bg-ink/5">
@@ -143,35 +150,28 @@ export default function WeeklyPlanner() {
         </p>
       )}
 
-      {isDesktop ? (
-        <div className="grid grid-cols-7 gap-4">
-          {dates.map((d) => (
-            <DayColumn key={d} date={d} tasks={byDate.get(d) ?? []} isToday={d === todayISO} renderTask={renderTask} onAdd={addOn} />
-          ))}
-        </div>
-      ) : (
-        <div>
-          <div role="tablist" aria-label="Day of the week" className="mb-4 flex gap-1 overflow-x-auto pb-1">
-            {dates.map((d, i) => (
-              <button
-                key={d}
-                role="tab"
-                aria-selected={d === activeDay}
-                tabIndex={d === activeDay ? 0 : -1}
-                onClick={() => setSelectedDay(d)}
-                onKeyDown={(e) => handleTabKeys(e, i, dates.length, (n) => setSelectedDay(dates[n]))}
-                className={`flex min-w-14 flex-1 flex-col items-center rounded-md border px-2 py-2 text-xs ${
-                  d === activeDay ? 'border-accent bg-accent/10 text-accent' : 'border-line bg-surface text-muted'
-                }`}
-              >
-                <span>{dayName(d).slice(0, 3)}</span>
-                <span className="text-sm font-medium">{d.slice(8)}</span>
-              </button>
-            ))}
-          </div>
-          <DayColumn date={activeDay} tasks={byDate.get(activeDay) ?? []} isToday={activeDay === todayISO} renderTask={renderTask} onAdd={addOn} />
-        </div>
-      )}
+      <div role="tablist" aria-label="Day of the week" className="mb-4 flex gap-1 overflow-x-auto pb-1">
+        {dates.map((date, dayIndex) => (
+          <button
+            key={date}
+            role="tab"
+            aria-label={`${dayName(date)} ${formatShortDate(date)}`}
+            aria-selected={date === activeDay}
+            tabIndex={date === activeDay ? 0 : -1}
+            onClick={() => setSelectedDay(date)}
+            onKeyDown={(keyboardEvent) => handleTabKeys(keyboardEvent, dayIndex, dates.length, (targetDayIndex) => setSelectedDay(dates[targetDayIndex]))}
+            className={`flex min-w-14 flex-1 flex-col items-center rounded-md border px-2 py-2 text-xs ${
+              date === activeDay ? 'border-accent bg-accent/10 text-accent' : 'border-line bg-surface text-muted'
+            }`}
+          >
+            <span>{dayName(date).slice(0, 3)}</span>
+            <span className="text-sm font-medium">{date.slice(8)}</span>
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" aria-label={`Tasks for ${dayName(activeDay)}`}>
+        <DayColumn date={activeDay} tasks={byDate.get(activeDay) ?? []} isToday={activeDay === todayISO} renderTask={renderTask} onAdd={addOn} />
+      </div>
     </div>
   )
 }

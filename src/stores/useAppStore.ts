@@ -13,6 +13,8 @@ interface AppState {
   templates: Template[]
   journal: JournalEntry[]
   saveError: string | null
+  canUndo: boolean
+  canRedo: boolean
 
   toggleTask: (id: string) => void
   addTask: (fields: TaskFields) => void
@@ -20,6 +22,8 @@ interface AppState {
   deleteTask: (id: string) => void
   /** Atomic bulk change used by templates, week copy and carry-forward. */
   applyChanges: (changes: { removeIds: string[]; add: Task[] }) => void
+  undo: () => void
+  redo: () => void
 
   addCategory: (fields: CategoryFields) => void
   updateCategory: (id: string, fields: CategoryFields) => void
@@ -39,37 +43,76 @@ interface AppState {
 
 const initial = storage.load()
 
-export const useAppStore = create<AppState>((set) => ({
+const HISTORY_LIMIT = 50
+
+export const useAppStore = create<AppState>((set, get) => {
+  let pastTasks: Task[][] = []
+  let futureTasks: Task[][] = []
+
+  const updateTasks = (update: (tasks: Task[]) => Task[]) =>
+    set((state) => {
+      const tasks = update(state.tasks)
+      if (tasks === state.tasks) return state
+      pastTasks = [...pastTasks.slice(-(HISTORY_LIMIT - 1)), state.tasks]
+      futureTasks = []
+      return { tasks, canUndo: true, canRedo: false }
+    })
+
+  return {
   tasks: initial.tasks,
   categories: initial.categories,
   templates: initial.templates,
   journal: initial.journal,
   saveError: null,
+  canUndo: false,
+  canRedo: false,
 
   toggleTask: (id) =>
-    set((s) => ({
-      tasks: s.tasks.map((t) =>
+    updateTasks((tasks) => {
+      if (!tasks.some((t) => t.id === id)) return tasks
+      return tasks.map((t) =>
         t.id === id ? { ...t, completed: !t.completed, completedAt: t.completed ? null : new Date().toISOString() } : t,
-      ),
-    })),
+      )
+    }),
 
   addTask: (fields) =>
-    set((s) => ({
-      tasks: [
-        ...s.tasks,
+    updateTasks((tasks) => [
+        ...tasks,
         { ...fields, id: crypto.randomUUID(), completed: false, completedAt: null, actualMinutes: null, createdAt: new Date().toISOString() },
-      ],
-    })),
+      ]),
 
-  updateTask: (id, fields) => set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...fields } : t)) })),
+  updateTask: (id, fields) =>
+    updateTasks((tasks) => {
+      if (!tasks.some((t) => t.id === id)) return tasks
+      return tasks.map((t) => (t.id === id ? { ...t, ...fields } : t))
+    }),
 
-  deleteTask: (id) => set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) })),
+  deleteTask: (id) =>
+    updateTasks((tasks) => {
+      const next = tasks.filter((t) => t.id !== id)
+      return next.length === tasks.length ? tasks : next
+    }),
 
   applyChanges: ({ removeIds, add }) =>
-    set((s) => {
+    updateTasks((tasks) => {
       const remove = new Set(removeIds)
-      return { tasks: [...s.tasks.filter((t) => !remove.has(t.id)), ...add] }
+      const remaining = tasks.filter((t) => !remove.has(t.id))
+      return remove.size === 0 && add.length === 0 ? tasks : [...remaining, ...add]
     }),
+
+  undo: () => {
+    if (pastTasks.length === 0) return
+    const tasks = pastTasks.pop()!
+    futureTasks.push(get().tasks)
+    set({ tasks, canUndo: pastTasks.length > 0, canRedo: true })
+  },
+
+  redo: () => {
+    if (futureTasks.length === 0) return
+    const tasks = futureTasks.pop()!
+    pastTasks.push(get().tasks)
+    set({ tasks, canUndo: true, canRedo: futureTasks.length > 0 })
+  },
 
   addCategory: (fields) => set((s) => ({ categories: [...s.categories, { ...fields, id: crypto.randomUUID() }] })),
 
@@ -102,10 +145,15 @@ export const useAppStore = create<AppState>((set) => ({
   deleteJournalEntry: (date) => set((s) => ({ journal: s.journal.filter((e) => e.date !== date) })),
 
   replaceAll: (state) =>
-    set({ tasks: state.tasks, categories: state.categories, templates: state.templates, journal: state.journal }),
+    (() => {
+      pastTasks = []
+      futureTasks = []
+      set({ tasks: state.tasks, categories: state.categories, templates: state.templates, journal: state.journal, canUndo: false, canRedo: false })
+    })(),
 
   dismissSaveError: () => set({ saveError: null }),
-}))
+  }
+})
 
 // One persistence subscription for the whole store: every mutation is saved, nothing is saved by hand.
 let applyingExternal = false
